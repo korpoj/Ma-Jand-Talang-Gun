@@ -69,6 +69,11 @@
 
     .footer-note { color: var(--muted); font-size: 12px; margin-top: 8px; }
   </style>
+  <style>
+    /* Small helper for summary cells */
+    .summary-shift { font-size: 12px; line-height: 1.25; margin-top: 2px; }
+    .summary-shift .label { font-weight: 600; }
+  </style>
 </head>
 <body>
   <div class="container">
@@ -136,14 +141,24 @@
         </div>
       </section>
 
-      <!-- Generated Schedules -->
+      <!-- Generated Schedules (Per Doctor) -->
       <section class="card">
         <div class="header">
-          <h2 style="margin:0">ตารางเวรของแต่ละคน</h2>
+          <h2 style="margin:0">ตารางเวรที่สร้างแล้ว (Per Doctor)</h2>
           <div class="chip" id="genMonthLabel"></div>
         </div>
         <div id="schedules"></div>
-        <div class="footer-note">หมายเหตุ: ระบบจะกระจายเวรให้เท่าๆ กัน, หลีกเลี่ยง 2 วันติด, และพยายามเว้นระยะให้ห่างที่สุดเท่าที่ทำได้จากข้อมูลข้อจำกัดด้านบน</div>
+      </section>
+
+      <!-- Summary (All Doctors in One Calendar) -->
+      <section class="card">
+        <div class="header">
+          <h2 style="margin:0">ปฏิทินรวม (All Doctors — Monthly Summary)</h2>
+          <div class="chip" id="summaryMonthLabel"></div>
+        </div>
+        <div class="schedule-wrap">
+          <table class="calendar" id="summaryCalendar"></table>
+        </div>
       </section>
     </div>
   </div>
@@ -206,22 +221,44 @@
       save();
       renderDoctors();
       renderConstraintCalendar();
+      renderGeneratedSchedules();
+      renderSummaryCalendar();
     }
+
     function deleteDoctor(idx) {
-      state.doctors.splice(idx,1);
-      for (const k in state.constraints) {
-        state.constraints[k]?.unavailable?.delete(idx);
+      // Remove doctor
+      state.doctors.splice(idx, 1);
+      // Reindex unavailable sets
+      for (const k of Object.keys(state.constraints)) {
+        const s = state.constraints[k]?.unavailable;
+        if (!(s instanceof Set)) continue;
+        const next = new Set();
+        s.forEach(i => {
+          if (i < idx) next.add(i);
+          else if (i > idx) next.add(i - 1);
+        });
+        state.constraints[k].unavailable = next;
       }
-      // Also remove this doctor from any assignments
-      for (const d in state.assignments) {
-        (state.assignments[d]||[]).forEach(sh => sh.doctors = sh.doctors.filter(x => x !== idx));
+      // Remove from assignments
+      for (const d of Object.keys(state.assignments)) {
+        state.assignments[d].forEach(sh => {
+          sh.doctors = sh.doctors.filter(i => i !== idx).map(i => i > idx ? i-1 : i);
+        });
       }
       save();
       renderDoctors();
       renderConstraintCalendar();
       renderGeneratedSchedules();
+      renderSummaryCalendar();
     }
-    function renameDoctor(idx, val){ state.doctors[idx]=val; save(); renderConstraintCalendar(); renderGeneratedSchedules(); }
+
+    function renameDoctor(idx, val){
+      state.doctors[idx]=val;
+      save();
+      renderConstraintCalendar();
+      renderGeneratedSchedules();
+      renderSummaryCalendar();
+    }
 
     function renderDoctors() {
       const list = document.getElementById('doctorList');
@@ -242,10 +279,16 @@
     const monthNames = ['January','February','March','April','May','June','July','August','September','October','November','December'];
     function daysInMonth(y,m){ return new Date(y, m+1, 0).getDate(); }
     function ymd(y,m,d){ return `${y}-${String(m+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`; }
+
     function changeMonth(delta){
-      let m = state.month + delta; let y = state.year;
-      if (m < 0) { m = 11; y--; } else if (m>11){ m=0; y++; }
-      state.month = m; state.year = y; save(); renderConstraintCalendar(); renderGeneratedSchedules();
+      const m = state.month + delta;
+      if (m < 0) { state.month = 11; state.year -= 1; }
+      else if (m > 11) { state.month = 0; state.year += 1; }
+      else { state.month = m; }
+      save();
+      renderConstraintCalendar();
+      renderGeneratedSchedules();
+      renderSummaryCalendar();
     }
 
     // ---- Constraint Calendar ----
@@ -312,10 +355,39 @@
     }
     function closeModal(){ document.getElementById('modal').style.display = 'none'; currentKey=null; }
 
-    function ensureConstraint(key){ if(!state.constraints[key]) state.constraints[key] = { holiday:false, unavailable: new Set() }; return state.constraints[key]; }
-    function toggleHoliday(key, val){ const c=ensureConstraint(key); c.holiday = !!val; save(); renderConstraintCalendar(); renderGeneratedSchedules(); }
-    function toggleUnavailable(key, idx, val){ const c=ensureConstraint(key); if(val) c.unavailable.add(idx); else c.unavailable.delete(idx); save(); renderConstraintCalendar(); renderGeneratedSchedules(); }
-    function clearAllForDay(){ if(!currentKey) return; delete state.constraints[currentKey]; save(); renderConstraintCalendar(); renderGeneratedSchedules(); closeModal(); }
+    function ensureConstraint(key){
+      if(!state.constraints[key]) state.constraints[key] = { holiday:false, unavailable: new Set() };
+      if(!(state.constraints[key].unavailable instanceof Set)) state.constraints[key].unavailable = new Set(state.constraints[key].unavailable||[]);
+      return state.constraints[key];
+    }
+
+    function toggleHoliday(key, val){
+      const c = ensureConstraint(key);
+      c.holiday = !!val;
+      save();
+      renderConstraintCalendar();
+      renderGeneratedSchedules();
+      renderSummaryCalendar();
+    }
+
+    function toggleUnavailable(key, idx, val){
+      const c = ensureConstraint(key);
+      if (val) c.unavailable.add(idx); else c.unavailable.delete(idx);
+      save();
+      renderConstraintCalendar();
+      renderGeneratedSchedules();
+      renderSummaryCalendar();
+    }
+
+    function clearAllForDay(){
+      if (!currentKey) return;
+      state.constraints[currentKey] = { holiday:false, unavailable:new Set() };
+      save();
+      renderConstraintCalendar();
+      renderGeneratedSchedules();
+      renderSummaryCalendar();
+      closeModal();
+    }
 
     // ---- Schedule generation ----
     const SHIFT_TEMPLATES = {
@@ -330,7 +402,13 @@
     }
 
     function generateSchedule(){
-      if (!state.doctors.length){ state.assignments = {}; renderGeneratedSchedules(); return; }
+      if (state.doctors.length === 0){
+        state.assignments = {};
+        save();
+        renderGeneratedSchedules();
+        renderSummaryCalendar();
+        return;
+      }
       const y = state.year, m = state.month; const total = daysInMonth(y,m);
       const template = SHIFT_TEMPLATES[state.options.pattern] || [];
       const k = Math.max(1, parseInt(state.options.staffPerShift||1));
@@ -391,6 +469,7 @@
       state.assignments = assignments;
       save();
       renderGeneratedSchedules();
+      renderSummaryCalendar();
       window.scrollTo({ top: document.body.scrollHeight, behavior:'smooth' });
     }
 
@@ -407,7 +486,7 @@
         const section = document.createElement('div');
         section.className = 'card';
         section.style.marginTop = '10px';
-        section.innerHTML = `<div class="header"><h3 style="margin:0">${name}</h3><div class="chip">${monthNames[m]}</div></div>`;
+        section.innerHTML = `<div class="header"><h3 style="margin:0">${name}</h3><div class="chip">${monthNames[m]} ${y}</div></div>`;
 
         let html = '<div class="schedule-wrap"><table class="calendar">';
         html += '<thead><tr><th>M</th><th>T</th><th>W</th><th>Th</th><th>F</th><th>S</th><th>Su</th></tr></thead><tbody>';
@@ -442,14 +521,62 @@
 
     // ---- Options handlers ----
     function updatePattern(val){ state.options.pattern = val; save(); }
-    function toggleWeekend(which, val){ state.options.weekendOff[which] = !!val; save(); renderConstraintCalendar(); renderGeneratedSchedules(); }
+    function toggleWeekend(which, checked){
+      state.options.weekendOff[which] = !!checked;
+      save();
+      renderConstraintCalendar();
+      renderGeneratedSchedules();
+      renderSummaryCalendar();
+    }
     function updateStaffPerShift(n){ state.options.staffPerShift = Math.max(1, n||1); save(); }
 
+    // ---- Summary (All Doctors in one calendar) ----
+    function renderSummaryCalendar(){
+      document.getElementById('summaryMonthLabel').textContent = `${monthNames[state.month]} ${state.year}`;
+      const table = document.getElementById('summaryCalendar');
+      const y = state.year, m = state.month;
+      const total = daysInMonth(y,m);
+      const first = new Date(y,m,1);
+      const firstDay = (first.getDay()+6)%7;
+      const headers = ['M','T','W','Th','F','S','Su'];
+      let html = '<thead><tr>'+headers.map(h=>`<th>${h}</th>`).join('')+'</tr></thead><tbody>';
+      let day = 1 - firstDay;
+
+      for (let r=0;r<6;r++){
+        html += '<tr>';
+        for(let c=0;c<7;c++){
+          if (day<1 || day>total){ html += '<td></td>'; }
+          else {
+            const key = ymd(y,m,day);
+            const cst = state.constraints[key];
+            const isHoliday = (cst && cst.holiday) || isWeekendOff(y,m,day);
+            const classes = [];
+            if (isHoliday) classes.push('holiday');
+            const shifts = state.assignments[day] || [];
+            html += `<td class="${classes.join(' ')}"><div class="date">${day}</div>`;
+            if (isHoliday) html += `<div class="chip">${(cst && cst.holiday) ? 'Holiday' : 'Weekend Off'}</div>`;
+            shifts.forEach(s=>{
+              const names = s.doctors.map(i => state.doctors[i] ?? `#${i+1}`).join(', ');
+              html += `<div class="summary-shift"><span class="label">${s.id}</span> ${s.label}<br>${names||'-'}</div>`;
+            });
+            html += '</td>';
+          }
+          day++;
+        }
+        html += '</tr>';
+      }
+      html += '</tbody>';
+      table.innerHTML = html;
+    }
+
     // ---- Init ----
-    load();
-    renderDoctors();
-    renderConstraintCalendar();
-    renderGeneratedSchedules();
+    document.addEventListener('DOMContentLoaded', () => {
+      load();
+      renderDoctors();
+      renderConstraintCalendar();
+      renderGeneratedSchedules();
+      renderSummaryCalendar();
+    });
   </script>
 </body>
 </html>
