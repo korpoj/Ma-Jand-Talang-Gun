@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Majandtalanggun — Doctor Scheduling</title>
+  <style>
+    :root {
+      --bg: #f7f9fc;
+      --card: #ffffff;
+      --text: #111827;
+      --muted: #6b7280;
+      --primary: #2563eb;
+      --primary-100: #dbeafe;
+      --danger: #ef4444;
+      --danger-100: #fee2e2;
+      --ok: #10b981;
+      --ok-100: #d1fae5;
+      --border: #e5e7eb;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+      background: var(--bg); color: var(--text);
+    }
+    .container { max-width: 1200px; margin: 24px auto; padding: 0 16px; }
+    h1 { text-align: center; margin: 8px 0 16px; }
+    .grid { display: grid; gap: 12px; }
+    .card { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 14px; box-shadow: 0 2px 8px rgba(0,0,0,.04); }
+    .row { display: flex; align-items: center; gap: 8px; }
+    button, input, select { font: inherit; }
+    .btn { padding: 8px 12px; border-radius: 10px; border: 1px solid var(--border); background: #fff; cursor: pointer; }
+    .btn.primary { background: var(--primary); color: white; border-color: var(--primary); }
+    .btn.ghost { background: transparent; }
+    .btn.danger { background: var(--danger); color: #fff; border-color: var(--danger); }
+    .btn.small { padding: 6px 10px; font-size: 14px; }
+    .btn:disabled { opacity: .6; cursor: not-allowed; }
+    .input { padding: 8px 10px; border-radius: 10px; border: 1px solid var(--border); width: 100%; }
+
+    .doctor-list { display: grid; grid-template-columns: 56px 1fr 100px; gap: 10px; align-items: center; }
+    .doctor-item { display: contents; }
+    .chip { padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border); background: #fff; font-size: 12px; }
+
+    .calendar { width: 100%; border-collapse: collapse; }
+    .calendar th, .calendar td { border: 1px solid var(--border); padding: 8px; text-align: center; vertical-align: top; }
+    .calendar th { background: #f3f4f6; font-weight: 600; }
+    .calendar .day { height: 72px; position: relative; cursor: pointer; }
+    .calendar .date { position: absolute; top: 6px; right: 8px; font-size: 12px; color: var(--muted); }
+    .calendar .holiday { background: var(--danger-100); }
+    .calendar .blocked { background: #fff7ed; }
+
+    .header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+
+    .modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.25); display: none; align-items: center; justify-content: center; padding: 16px; }
+    .modal { background: #fff; width: 520px; max-width: 100%; border-radius: 14px; border: 1px solid var(--border); box-shadow: 0 10px 30px rgba(0,0,0,.2); }
+    .modal header { padding: 14px; border-bottom: 1px solid var(--border); font-weight: 600; }
+    .modal .content { padding: 14px; max-height: 60vh; overflow: auto; }
+    .modal .footer { padding: 14px; border-top: 1px solid var(--border); display: flex; justify-content: flex-end; gap: 8px; }
+    .list { display: grid; gap: 8px; }
+    .list .item { display: flex; align-items: center; justify-content: space-between; border: 1px solid var(--border); border-radius: 10px; padding: 8px 10px; }
+    .toggle { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; }
+
+    .schedule-wrap { overflow-x: auto; }
+    .legend { display: flex; gap: 12px; align-items: center; font-size: 14px; color: var(--muted); }
+    .legend .box { width: 14px; height: 14px; border-radius: 4px; border: 1px solid var(--border); }
+
+    .assign-cell { font-weight: 600; }
+    .assign-cell .name { display: block; font-size: 12px; font-weight: 400; color: var(--muted); }
+
+    .footer-note { color: var(--muted); font-size: 12px; margin-top: 8px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>มาจัดตารางกัน — Doctor Scheduler</h1>
+
+    <div class="grid" style="grid-template-columns: 1fr;">
+      <!-- Doctors Panel -->
+      <section class="card">
+        <h2 style="margin-top:0">ชื่อแพทย์</h2>
+        <div class="doctor-list" id="doctorListHeader">
+          <div style="text-align:center; color:var(--muted)">#</div>
+          <div style="color:var(--muted)">Name</div>
+          <div></div>
+        </div>
+        <div class="doctor-list" id="doctorList"></div>
+        <div class="row" style="margin-top:10px">
+          <input id="doctorName" class="input" placeholder="เพิ่มชื่อแพทย์..." />
+          <button class="btn" onclick="addDoctor()">+</button>
+        </div>
+      </section>
+
+      <!-- Options -->
+      <section class="card">
+        <h2 style="margin-top:0">ตัวเลือกเวร (Shift Options)</h2>
+        <div class="grid" style="grid-template-columns: repeat(3, minmax(0, 1fr)); align-items:center">
+          <div>
+            <div style="font-weight:600; margin-bottom:6px">รูปแบบเวรต่อวัน</div>
+            <select id="shiftPattern" class="input" onchange="updatePattern(this.value)">
+              <option value="one">1 เวร: 16:00–08:00 (+1)</option>
+              <option value="two">2 เวร: 16:00–24:00, 00:00–08:00</option>
+              <option value="three">3 เวร: 08:00–16:00, 16:00–24:00, 00:00–08:00</option>
+            </select>
+          </div>
+          <div>
+            <div style="font-weight:600; margin-bottom:6px">จำนวนแพทย์ต่อเวร (คน)</div>
+            <input id="staffPerShift" type="number" min="1" max="10" class="input" value="1" onchange="updateStaffPerShift(parseInt(this.value||'1'))" />
+          </div>
+          <div>
+            <div style="font-weight:600; margin-bottom:6px">วันหยุดประจำสัปดาห์</div>
+            <label class="toggle" style="margin-right:12px"><input id="offSat" type="checkbox" onchange="toggleWeekend('sat', this.checked)"/> เสาร์ไม่เข้าเวร</label>
+            <label class="toggle"><input id="offSun" type="checkbox" onchange="toggleWeekend('sun', this.checked)"/> อาทิตย์ไม่เข้าเวร</label>
+          </div>
+        </div>
+      </section>
+
+      <!-- Calendar & Constraints -->
+      <section class="card">
+        <div class="header">
+          <h2 style="margin:0">ใส่วันหยุด/วันไม่ว่างแต่ละคน</h2>
+          <div class="row" style="gap:6px">
+            <button class="btn" onclick="changeMonth(-1)">‹</button>
+            <div id="monthLabel" class="chip"></div>
+            <button class="btn" onclick="changeMonth(1)">›</button>
+          </div>
+        </div>
+        <div class="legend" style="margin-bottom:8px">
+          <span class="row" style="gap:6px"><span class="box" style="background: var(--danger-100)"></span>Public Holiday</span>
+          <span class="row" style="gap:6px"><span class="box" style="background: #fff7ed"></span>Doctor not available</span>
+        </div>
+        <div class="schedule-wrap">
+          <table class="calendar" id="constraintCalendar"></table>
+        </div>
+        <div class="row" style="justify-content:flex-end; margin-top:12px">
+          <button class="btn primary" onclick="generateSchedule()">Finish</button>
+        </div>
+      </section>
+
+      <!-- Generated Schedules -->
+      <section class="card">
+        <div class="header">
+          <h2 style="margin:0">ตารางเวรของแต่ละคน</h2>
+          <div class="chip" id="genMonthLabel"></div>
+        </div>
+        <div id="schedules"></div>
+        <div class="footer-note">หมายเหตุ: ระบบจะกระจายเวรให้เท่าๆ กัน, หลีกเลี่ยง 2 วันติด, และพยายามเว้นระยะให้ห่างที่สุดเท่าที่ทำได้จากข้อมูลข้อจำกัดด้านบน</div>
+      </section>
+    </div>
+  </div>
+
+  <!-- Modal -->
+  <div class="modal-backdrop" id="modal">
+    <div class="modal" role="dialog" aria-modal="true">
+      <header>ตั้งค่าของวันที่ <span id="modalDateLabel"></span></header>
+      <div class="content">
+        <div class="list" id="modalList"></div>
+      </div>
+      <div class="footer">
+        <button class="btn" onclick="closeModal()">ปิด</button>
+        <button class="btn danger" onclick="clearAllForDay()">ล้างทั้งหมด</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // ---- State ----
+    const state = {
+      doctors: [], // ["Dr A", ...]
+      year: new Date().getFullYear(),
+      month: new Date().getMonth(), // 0..11
+      options: {
+        pattern: 'one', // 'one' | 'two' | 'three'
+        weekendOff: { sat: false, sun: false },
+        staffPerShift: 1,
+      },
+      constraints: {
+        // key: YYYY-MM-DD => { holiday: boolean, unavailable: Set(doctorIndex) }
+      },
+      assignments: {}, // day(1..n) => [{id, label, doctors:number[]}] per shift
+    };
+
+    // ---- Persistence ----
+    const save = () => localStorage.setItem('majandtalanggun', JSON.stringify(state, (k,v)=> v instanceof Set? [...v] : v));
+    const load = () => {
+      const raw = localStorage.getItem('majandtalanggun');
+      if (!raw) return;
+      const data = JSON.parse(raw);
+      state.doctors = data.doctors||[];
+      state.year = data.year ?? state.year;
+      state.month = data.month ?? state.month;
+      state.options = data.options || state.options;
+      state.constraints = {};
+      for (const [k, v] of Object.entries(data.constraints||{})) {
+        state.constraints[k] = { holiday: !!v.holiday, unavailable: new Set(v.unavailable||[]) };
+      }
+      state.assignments = data.assignments || {};
+    };
+
+    // ---- Doctor CRUD ----
+    function addDoctor() {
+      const input = document.getElementById('doctorName');
+      const name = (input.value||'').trim();
+      if (!name) return;
+      state.doctors.push(name);
+      input.value = '';
+      save();
+      renderDoctors();
+      renderConstraintCalendar();
+    }
+    function deleteDoctor(idx) {
+      state.doctors.splice(idx,1);
+      for (const k in state.constraints) {
+        state.constraints[k]?.unavailable?.delete(idx);
+      }
+      // Also remove this doctor from any assignments
+      for (const d in state.assignments) {
+        (state.assignments[d]||[]).forEach(sh => sh.doctors = sh.doctors.filter(x => x !== idx));
+      }
+      save();
+      renderDoctors();
+      renderConstraintCalendar();
+      renderGeneratedSchedules();
+    }
+    function renameDoctor(idx, val){ state.doctors[idx]=val; save(); renderConstraintCalendar(); renderGeneratedSchedules(); }
+
+    function renderDoctors() {
+      const list = document.getElementById('doctorList');
+      list.innerHTML = '';
+      state.doctors.forEach((name, idx) => {
+        const wrap = document.createElement('div');
+        wrap.className = 'doctor-item';
+        wrap.innerHTML = `
+          <div style="text-align:center">${idx+1}</div>
+          <div><input class="input" value="${name.replace(/"/g,'&quot;')}" oninput="renameDoctor(${idx}, this.value)"/></div>
+          <div style="text-align:right"><button class="btn danger small" onclick="deleteDoctor(${idx})">Delete</button></div>
+        `;
+        list.appendChild(wrap);
+      });
+    }
+
+    // ---- Calendar helpers ----
+    const monthNames = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+    function daysInMonth(y,m){ return new Date(y, m+1, 0).getDate(); }
+    function ymd(y,m,d){ return `${y}-${String(m+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`; }
+    function changeMonth(delta){
+      let m = state.month + delta; let y = state.year;
+      if (m < 0) { m = 11; y--; } else if (m>11){ m=0; y++; }
+      state.month = m; state.year = y; save(); renderConstraintCalendar(); renderGeneratedSchedules();
+    }
+
+    // ---- Constraint Calendar ----
+    function renderConstraintCalendar(){
+      document.getElementById('monthLabel').textContent = `${monthNames[state.month]} ${state.year}`;
+      const patEl = document.getElementById('shiftPattern'); if (patEl) patEl.value = state.options.pattern;
+      const spsEl = document.getElementById('staffPerShift'); if (spsEl) spsEl.value = state.options.staffPerShift;
+      const satEl = document.getElementById('offSat'); if (satEl) satEl.checked = !!state.options.weekendOff.sat;
+      const sunEl = document.getElementById('offSun'); if (sunEl) sunEl.checked = !!state.options.weekendOff.sun;
+
+      const table = document.getElementById('constraintCalendar');
+      const first = new Date(state.year, state.month, 1);
+      const firstDay = (first.getDay()+6)%7; // Monday=0
+      const total = daysInMonth(state.year, state.month);
+      const headers = ['M','T','W','Th','F','S','Su'];
+      let html = '<thead><tr>'+headers.map(h=>`<th>${h}</th>`).join('')+'</tr></thead><tbody>';
+      let day = 1 - firstDay;
+      for (let r=0;r<6;r++){
+        html += '<tr>';
+        for(let c=0;c<7;c++){
+          if (day<1 || day>total){ html += '<td></td>'; }
+          else {
+            const key = ymd(state.year,state.month,day);
+            const cst = state.constraints[key];
+            const classes = ['day'];
+            if (cst && cst.holiday) classes.push('holiday');
+            if (cst && cst.unavailable && cst.unavailable.size>0) classes.push('blocked');
+            const dow = (new Date(state.year,state.month,day).getDay()+6)%7; // 0..6
+            const weekendOff = (dow===5 && state.options.weekendOff.sat) || (dow===6 && state.options.weekendOff.sun);
+            if (weekendOff) classes.push('holiday');
+            html += `<td class="${classes.join(' ')}" onclick="openModal('${key}')"><div class="date">${day}</div>`;
+            if (cst && cst.holiday) html += `<div class="chip" style="background:var(--danger-100)">Holiday</div>`;
+            if (weekendOff) html += `<div class="chip">Weekend Off</div>`;
+            if (cst && cst.unavailable && cst.unavailable.size>0) html += `<div class="chip" title="Unavailable">${cst.unavailable.size} not available</div>`;
+            html += '</td>';
+          }
+          day++;
+        }
+        html += '</tr>';
+      }
+      html += '</tbody>';
+      table.innerHTML = html;
+    }
+
+    // ---- Modal for day settings ----
+    let currentKey = null;
+    function openModal(key){
+      currentKey = key;
+      const [y,m,d] = key.split('-');
+      document.getElementById('modalDateLabel').textContent = `${d}/${m}/${y}`;
+      const list = document.getElementById('modalList');
+      const conf = state.constraints[key] || { holiday:false, unavailable: new Set() };
+      const unavailable = conf.unavailable instanceof Set ? conf.unavailable : new Set(conf.unavailable||[]);
+
+      let html = '';
+      const holChecked = conf.holiday ? 'checked' : '';
+      html += `<div class="item"><div>Public Holiday</div><label class="toggle"><input type="checkbox" ${holChecked} onchange="toggleHoliday('${key}', this.checked)"/><span>หยุด</span></label></div>`;
+      state.doctors.forEach((name, idx) => {
+        const checked = unavailable.has(idx) ? 'checked' : '';
+        html += `<div class="item"><div>${name}</div><label class="toggle"><input type="checkbox" ${checked} onchange="toggleUnavailable('${key}', ${idx}, this.checked)"/><span>ไม่ว่าง</span></label></div>`;
+      });
+      list.innerHTML = html;
+      document.getElementById('modal').style.display = 'flex';
+    }
+    function closeModal(){ document.getElementById('modal').style.display = 'none'; currentKey=null; }
+
+    function ensureConstraint(key){ if(!state.constraints[key]) state.constraints[key] = { holiday:false, unavailable: new Set() }; return state.constraints[key]; }
+    function toggleHoliday(key, val){ const c=ensureConstraint(key); c.holiday = !!val; save(); renderConstraintCalendar(); renderGeneratedSchedules(); }
+    function toggleUnavailable(key, idx, val){ const c=ensureConstraint(key); if(val) c.unavailable.add(idx); else c.unavailable.delete(idx); save(); renderConstraintCalendar(); renderGeneratedSchedules(); }
+    function clearAllForDay(){ if(!currentKey) return; delete state.constraints[currentKey]; save(); renderConstraintCalendar(); renderGeneratedSchedules(); closeModal(); }
+
+    // ---- Schedule generation ----
+    const SHIFT_TEMPLATES = {
+      one: [{ id:'S1', label:'16:00–08:00' }],
+      two: [{ id:'S1', label:'16:00–24:00' }, { id:'S2', label:'00:00–08:00' }],
+      three: [{ id:'S1', label:'08:00–16:00' }, { id:'S2', label:'16:00–24:00' }, { id:'S3', label:'00:00–08:00' }],
+    };
+
+    function isWeekendOff(y,m,d){
+      const dow = (new Date(y,m,d).getDay()+6)%7; // 0..6 Mon..Sun
+      return (dow===5 && state.options.weekendOff.sat) || (dow===6 && state.options.weekendOff.sun);
+    }
+
+    function generateSchedule(){
+      if (!state.doctors.length){ state.assignments = {}; renderGeneratedSchedules(); return; }
+      const y = state.year, m = state.month; const total = daysInMonth(y,m);
+      const template = SHIFT_TEMPLATES[state.options.pattern] || [];
+      const k = Math.max(1, parseInt(state.options.staffPerShift||1));
+
+      const assignments = {}; 
+      const counts = new Array(state.doctors.length).fill(0);
+      const lastDayAssigned = new Array(state.doctors.length).fill(-999);
+
+      const getAvail = (day) => {
+        const key = ymd(y,m,day);
+        const c = state.constraints[key];
+        if (c && c.holiday) return [];
+        if (isWeekendOff(y,m,day)) return [];
+        const unavailable = (c && c.unavailable) ? c.unavailable : new Set();
+        const avail = [];
+        state.doctors.forEach((_, idx)=>{ if(!unavailable.has(idx)) avail.push(idx); });
+        return avail;
+      };
+
+      for (let d=1; d<=total; d++){
+        const avail = getAvail(d);
+        if (avail.length === 0 || template.length===0) continue;
+        assignments[d] = template.map(s=>({ id:s.id, label:s.label, doctors: [] }));
+
+        for (let si=0; si<template.length; si++){
+          const need = k;
+          for (let slot=0; slot<need; slot++){
+            let best = null; let bestScore = -Infinity;
+            for (const idx of avail){
+              const alreadyToday = assignments[d].some(sh => sh.doctors.includes(idx));
+              if (alreadyToday) continue;
+              const wasYesterday = Array.isArray(assignments[d-1]) && assignments[d-1].some(sh => sh.doctors.includes(idx));
+              const fairness = -counts[idx];
+              const spacing = (d - lastDayAssigned[idx]);
+              const penalty = wasYesterday ? -1000 : 0; // avoid back-to-back
+              const score = penalty + fairness * 10 + spacing;
+              if (score > bestScore){ bestScore = score; best = idx; }
+            }
+            if (best == null){
+              for (const idx of avail){
+                const wasYesterday = Array.isArray(assignments[d-1]) && assignments[d-1].some(sh => sh.doctors.includes(idx));
+                const fairness = -counts[idx];
+                const spacing = (d - lastDayAssigned[idx]);
+                const penalty = wasYesterday ? -1000 : 0;
+                const score = penalty + fairness * 10 + spacing - 100; // allow repeat same-day if necessary
+                if (score > bestScore){ bestScore = score; best = idx; }
+              }
+            }
+            if (best != null){
+              assignments[d][si].doctors.push(best);
+              counts[best]++;
+              lastDayAssigned[best] = d;
+            }
+          }
+        }
+      }
+
+      state.assignments = assignments;
+      save();
+      renderGeneratedSchedules();
+      window.scrollTo({ top: document.body.scrollHeight, behavior:'smooth' });
+    }
+
+    // ---- Render generated per-doctor calendars ----
+    function renderGeneratedSchedules(){
+      document.getElementById('genMonthLabel').textContent = `${monthNames[state.month]} ${state.year}`;
+      const wrap = document.getElementById('schedules');
+      wrap.innerHTML = '';
+
+      const y = state.year, m = state.month; const total = daysInMonth(y,m);
+      const first = new Date(y,m,1); const firstDay = (first.getDay()+6)%7;
+
+      state.doctors.forEach((name, idx) => {
+        const section = document.createElement('div');
+        section.className = 'card';
+        section.style.marginTop = '10px';
+        section.innerHTML = `<div class="header"><h3 style="margin:0">${name}</h3><div class="chip">${monthNames[m]}</div></div>`;
+
+        let html = '<div class="schedule-wrap"><table class="calendar">';
+        html += '<thead><tr><th>M</th><th>T</th><th>W</th><th>Th</th><th>F</th><th>S</th><th>Su</th></tr></thead><tbody>';
+        let day = 1 - firstDay;
+        for (let r=0;r<6;r++){
+          html += '<tr>';
+          for(let c=0;c<7;c++){
+            if (day<1 || day>total){ html += '<td></td>'; }
+            else {
+              const key = ymd(y,m,day); const cst = state.constraints[key];
+              const isHoliday = (cst && cst.holiday) || isWeekendOff(y,m,day);
+              const myShifts = (state.assignments[day]||[]).filter(s=> s.doctors.includes(idx));
+              let cls = '';
+              if (isHoliday) cls = 'holiday';
+              if (cst && cst.unavailable && typeof cst.unavailable.has === 'function' && cst.unavailable.has(idx)) cls = 'blocked';
+              html += `<td class="${cls}"><div class="date">${day}</div>`;
+              if (isHoliday) html += `<div class="chip">${(cst && cst.holiday) ? 'Holiday' : 'Weekend Off'}</div>`;
+              if (myShifts.length){
+                myShifts.forEach(s => { html += `<div class="assign-cell">เวร ${s.label}</div>`; });
+              }
+              html += '</td>';
+            }
+            day++;
+          }
+          html += '</tr>';
+        }
+        html += '</tbody></table></div>';
+        section.innerHTML += html;
+        wrap.appendChild(section);
+      });
+    }
+
+    // ---- Options handlers ----
+    function updatePattern(val){ state.options.pattern = val; save(); }
+    function toggleWeekend(which, val){ state.options.weekendOff[which] = !!val; save(); renderConstraintCalendar(); renderGeneratedSchedules(); }
+    function updateStaffPerShift(n){ state.options.staffPerShift = Math.max(1, n||1); save(); }
+
+    // ---- Init ----
+    load();
+    renderDoctors();
+    renderConstraintCalendar();
+    renderGeneratedSchedules();
+  </script>
+</body>
+</html>
