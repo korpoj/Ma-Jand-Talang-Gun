@@ -502,7 +502,7 @@
               let cls = '';
               if (isHoliday) cls = 'holiday';
               if (cst && cst.unavailable && typeof cst.unavailable.has === 'function' && cst.unavailable.has(idx)) cls = 'blocked';
-              html += `<td class="${cls}"><div class="date">${day}</div>`;
+              html += `<td class="${cls} day"><div class="date">${day}</div>`;
               if (isHoliday) html += `<div class="chip">${(cst && cst.holiday) ? 'Holiday' : 'Weekend Off'}</div>`;
               if (myShifts.length){
                 myShifts.forEach(s => { html += `<div class="assign-cell">เวร ${s.label}</div>`; });
@@ -579,4 +579,5 @@
     });
   </script>
 </body>
+
 </html>
